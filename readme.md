@@ -8,7 +8,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 
 ### Run this demo 
 
-> Prerequisites: Install docker, docker-compose, node:v20, npm in order to run this demo. 
+> Prerequisites: Install docker, docker-compose, node.js, npm in order to run this demo. 
 
 > Note: The instructions bellow were tested on linux.
 
@@ -52,7 +52,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 
 > Note: Notice that there are other fields (e.g ISSUER_URL, CLIENT_ID ) that are pre-filled with the demoClient information. When creating realms/clients with different names, those values need to be updated accordingly. 
 
-3. Open a terminal on express-backend. Run in sequence: 
+3. Open a terminal on on path `demo-application/express-backend`. Run in sequence: 
 ```
 npm i
 npm run dev
@@ -63,7 +63,7 @@ You should see "Server running on https://localhost:8181" when
 
 #### Setup and Spin Up the Frontend Server 
 
-1. Open a terminal on angular-demo-frontend. Run in sequence:
+1. Open a terminal on path `demo-application/angular-demo-frontend`. Run in sequence:
 ```
 npm i
 npx ng serve --ssl

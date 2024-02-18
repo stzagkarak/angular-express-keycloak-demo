@@ -2,6 +2,9 @@ version: "3.7"
 services:
 
   # reverse proxy and webserver
+  # configures ssl automaticaly
+  # binds frontend content on https://your.domain.com/
+  # binds backend server on https://your.domain.com/api/
   nginx: 
     image: jonasal/nginx-certbot:${NGINX_CERTBOT_VERSION}
     ports:
@@ -19,6 +22,7 @@ services:
     networks:
       - intranet
 
+  # builds and runs you backend code in **internal** port 8181
   express-server:
     build: ./express-backend
     ports: 
@@ -27,6 +31,8 @@ services:
       - ./prod-configs/backend.env
     restart: unless-stopped
 
+  # builds your frontend application and "places" it on the angular html folder
+  # will use the environment.ts file located on the prod-configs folder
   frontend-builder:
     build: ./angular-demo-frontend
     volumes:
