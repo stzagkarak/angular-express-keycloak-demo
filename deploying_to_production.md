@@ -8,9 +8,11 @@ You may use [the following repo](https://github.com/stzagkarak/keycloak-compose)
 
 > Note: The following guidelines are preferences.
 
-You may use the configuration inside the demo-application folder. Note that you will have to change values inside the config files to much your deployment.
-
 > Note: You need to acquire a domain name and bind it to your machine's ip in order for the configuration to work.
+
+You may use the configuration inside the demo-application folder. 
+
+**Note that you will have to change values inside the config files to much your deployment.**
 
 The deployment configuration (initiated by running `./run_prod_compose.yml`): 
 1. Configures a https nginx reverse proxy for your acquired domain 
