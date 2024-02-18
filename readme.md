@@ -18,11 +18,13 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 
 > Warning: DO NOT USE this configuration to spin up a keycloak instance in production. See `deploying_to_production.md` for more information.
 
-2. Open a browser and navigate to `http://localhost:8080`. Click admin panel and login using "demo" as username and password. 
+2. Open a browser and navigate to `http://localhost:8080`. 
 
-3. Create a new realm with name "demoRealm" clicking the "Create Realm" button on the top left dropdown of the UI. 
+3. Click administration panel and login using "demo" as username and password. 
 
-4. Create a Client by navigating on the Clients->Create client.
+4. Create a new realm with name "demoRealm" clicking the "Create Realm" button on the top left dropdown of the UI. 
+
+5. Create a Client by navigating on the Clients->Create client.
 - Use `demoClient` as client ID. 
 - Enable Client Authentication ( in order for the client to be secure )
 - Make sure Standard flow is checked.
@@ -31,7 +33,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 - Add `https://localhost:8181/logout/success` on Valid Post Logout redirect URIs
 - Add `https://localhost:8181` on Web Origins
 
-5. Create 2 users using the admin panel. Navigate to Users->Add User. Provide usernames. After creating a user, navigate to credentials tab and a password. No need to set the password as temporary. 
+6. Create 2 users using the admin panel. Navigate to Users->Add User. Provide usernames. After creating a user, navigate to credentials tab and a password. No need to set the password as temporary. 
 
 ##### Create another kind of user
 
@@ -40,7 +42,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 - Set User Attribute to `user-role`.
 - Set Token Claim Name to `user-role`.
 
-6. On **1** of the 2 created users, navigate on their attributes tab, add an attribute with name `user-role` and value `admin`.
+8. On **1** of the 2 created users, navigate on their attributes tab, add an attribute with name `user-role` and value `admin`.
 
 #### Setup and Spin Up the Backend Service
 
@@ -79,17 +81,20 @@ All should be ok. navigate to `https://localhost:4200` to see the demo applicati
     - An an email address to your admin "demo" account.
     - Configure mailhost Realm Settings->Email.
 
+- Enable Consent Page under Clients->demoClient
+
 ### Creating Custom Themes
 
 TODO
 
 ### Further reading
 
-Please study the provided code and read through the provided presentation.
+Please study the provided code and read through the provided presentation. Additionally, I highly encourage you to check the bellow resources (random order): 
 
 1. https://medium.com/@prashantramnyc/node-js-with-passport-authentication-simplified-76ca65ee91e5
 2. https://medium.com/keycloak/keycloak-express-openid-client-fabea857f11f
 3. https://dev.to/zachgoll/the-ultimate-guide-to-passport-js-k2l
 4. https://dev.to/cristain/how-to-set-up-typescript-with-nodejs-and-express-2023-gf
+5. https://medium.com/@ramanamuttana/custom-attribute-in-keycloak-access-token-831b4be7384a
 
 Credits: stzagkarak@Feb2024

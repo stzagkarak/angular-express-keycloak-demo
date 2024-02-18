@@ -1,0 +1,37 @@
+version: "3.7"
+services:
+
+  # reverse proxy and webserver
+  nginx: 
+    image: jonasal/nginx-certbot:${NGINX_CERTBOT_VERSION}
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - ./prod-configs/nginx-certbot.env
+    restart: unless-stopped
+    volumes:
+      - ./instance/nginx/:/etc/letsencrypt
+      - ./prod-nginx-config/user_conf.d:/etc/nginx/user_conf.d
+      - ./angular-demo-frontend/dist:/usr/share/nginx/html # frontend files
+    depends_on:
+      - frontend-builder
+    networks:
+      - intranet
+
+  express-server:
+    build: ./express-backend
+    ports: 
+      - "8181:8181"
+    env_file:
+      - ./prod-configs/backend.env
+    restart: unless-stopped
+
+  frontend-builder:
+    build: ./angular-demo-frontend
+    volumes:
+      - ./prod-configs/angular_environment:/app/src/environments
+      - ./angular-demo-frontend/dist:/app/dist
+
+networks:
+  intranet:

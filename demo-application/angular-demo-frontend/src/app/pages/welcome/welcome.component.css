@@ -1,0 +1,19 @@
+.flex-cont {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.out-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.red-text {
+    color: red;
+}
+
+.green-text {
+    color: green;
+}

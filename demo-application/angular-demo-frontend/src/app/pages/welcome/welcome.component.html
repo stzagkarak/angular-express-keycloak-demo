@@ -1,0 +1,19 @@
+<div class="out-container">
+    <h4>This is the main page of the application.</h4>
+    <div class="flex-cont">
+        <button id="login" (click)="login()">Login</button>
+        <button id="logout" (click)="logout()">Logout</button>
+    </div>
+    <div class="flex-cont" [ngClass]="{'red-text': redOn, 'green-text': greenOn}">
+        <button id="check_login_status_button" (click)="checkLoginStatus()">Check Login Status</button>
+        <p>{{loginText}}</p>
+    </div>
+    <div class="flex-cont" [ngClass]="{'red-text': redUserInfo}">
+        <button id="client_info" (click)="getUserInfo()">Get Client Info</button>
+        <p>{{userInfo}}</p>
+    </div>
+    <div class="flex-cont" [ngClass]="{'red-text': redAction, 'green-text': greenAction,}">
+        <button id="client_info" (click)="performAdminAction()">Perform Admin Action</button>
+        <p>{{admActionOutput}}</p>
+    </div>
+</div>
