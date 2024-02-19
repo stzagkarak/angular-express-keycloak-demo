@@ -34,7 +34,9 @@ async function setup_defaults() {
                 sameSite: "lax",
                 httpOnly: true,
                 secure: (process.env.LOCAL_DEV_SSL === 'true') 
-                    || (process.env.TLS_TERMINATION_PROXY === 'true') 
+                || (process.env.TLS_TERMINATION_PROXY === 'true'), 
+                maxAge: 1000*60*60*10 
+                    // 30 minute session ( session length should be close to or identical to realms session idle expiration timeout  )
             }
         })
     )
