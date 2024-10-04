@@ -15,11 +15,23 @@ export class HttpService {
     })
   }
 
-  login() {
-    window.location = (environment.BACKEND_HOST + "/login") as any;
+  login(isProvider: Boolean) {
+    if(!isProvider)
+      window.location = (environment.BACKEND_HOST + "/login") as any;
+    else {
+      window.location = (environment.BACKEND_HOST + "/login?userType=provider") as any;
+    }
+  }
+
+  register(isProvider: Boolean) {
+    if(!isProvider)
+      window.location = (environment.BACKEND_HOST + "/register") as any;
+    else
+      window.location = (environment.BACKEND_HOST + "/register?userType=provider") as any;
   }
 
   logout() {
+    
     window.location = (environment.BACKEND_HOST + "/logout") as any;
   }
 

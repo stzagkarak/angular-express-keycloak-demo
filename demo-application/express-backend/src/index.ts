@@ -6,7 +6,6 @@ import cors from 'cors';
 import { BaseClient, Issuer, Strategy } from "openid-client";
 import { apiRouter } from "./api/api";
 import https from "https";
-import passport from 'passport';
 import fs from "fs";
 import { create_client, setup_auth_strategy } from "./auth/auth";
 

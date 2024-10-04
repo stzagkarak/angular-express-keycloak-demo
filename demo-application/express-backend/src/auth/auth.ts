@@ -1,4 +1,4 @@
-import { Application } from "express";
+import { Application, NextFunction, Request, Response } from "express";
 import passport from 'passport';
 import { BaseClient, Issuer, Strategy } from 'openid-client';
 
@@ -38,5 +38,37 @@ export async function setup_auth_strategy(app: Application, client: BaseClient) 
     });
 
     return app;
+}
+
+declare module 'express-session' {
+    interface SessionData {
+        useCallback: string;
+    }
+}
+
+export const post_register_fr_redirect_URIs = process.env.FRONTEND_POST_REGISTER_REDIRECT_URIS?.split(' ') || [];
+export async function storeRegisterCallback(req: Request, res: Response, next: NextFunction) {
+    if(req.query && req.query.userType && req.query.userType == "provider") {
+        // redirect URI for 
+        req.session.useCallback = post_register_fr_redirect_URIs[1];
+    }
+    
+    // default redirectURI
+    else req.session.useCallback = post_register_fr_redirect_URIs[0];
+
+    return next();
+}
+
+export const post_login_fr_redirect_URIs = process.env.FRONTEND_POST_LOGIN_REDIRECT_URIS?.split(' ') || [];
+export async function storeLoginCallback(req: Request, res: Response, next: NextFunction) {
+    if(req.query && req.query.userType && req.query.userType == "provider") {
+        // redirect URI for 
+        req.session.useCallback = post_login_fr_redirect_URIs[1];
+    }
+    
+    // default redirectURI
+    else req.session.useCallback = post_login_fr_redirect_URIs[0];
+
+    return next();
 }
 

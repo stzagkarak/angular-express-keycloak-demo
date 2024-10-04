@@ -7,8 +7,9 @@ export async function isAuthenticated(req:Request, res:Response, next:NextFuncti
 
 export  async function isAdmin(req:Request, res:Response, next:NextFunction) {
     try {
+
         // @ts-ignore
-        if(req.user?.["user-role"] === 'admin') return next();
+        if(req.user?.in_group.includes("/admins")) return next();
     }
     catch(err) {
         return next(401);
