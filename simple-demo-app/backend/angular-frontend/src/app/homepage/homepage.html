@@ -1,0 +1,42 @@
+<p [ngStyle]="{ color: tokenFound ? 'green' : 'red' }">
+  {{ tokenFound ? "Token Found" : "No Token Found" }}
+</p>
+
+<button (click)="login()">Login</button>
+
+<br />
+<br />
+
+<button (click)="logout()">Logout from this Application</button>
+
+<br />
+
+<p
+  [ngStyle]="{
+    color: tokenRefreshed ? 'green' : 'red',
+    opacity: tokenFound ? 1 : 0
+  }"
+>
+  {{ tokenRefreshed ? "Tokens Refreshed" : "Tokens Not Refreshed" }}
+</p>
+
+<br />
+<br />
+
+<button (click)="refreshTokens()" [disabled]="!tokenFound">
+  Refresh Tokens
+</button>
+
+<br />
+<br />
+
+<button (click)="fetchUserInfo()" [disabled]="!tokenFound">
+  Fetch User Info
+</button>
+
+<br />
+<br />
+
+<button (click)="fetchAdminResource()" [disabled]="!tokenFound">
+  Admin Resource
+</button>

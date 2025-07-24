@@ -61,6 +61,7 @@ async function initialize() {
 
   app.use(apiRouter);
 
+  // in case the reverse proxy is not on, start the server with example keys
   if (process.env.LOCAL_DEV_SSL === "true") {
     https
       .createServer(
