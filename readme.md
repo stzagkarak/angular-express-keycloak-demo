@@ -1,6 +1,6 @@
 # Demo Application to demonstrate "secure" authorization and session management using keycloak as the OIDC provider
 
-> Warning: DO NOT USE the same configuration for production environments. For guidence on moving to production see `deploying_to_production.md` TODO
+> Warning: DO NOT USE the same configuration for production environments.
 
 ### Conseptual Ideas behind this demo
 
@@ -16,7 +16,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 
 1. Startup a keycloak instance. Open a terminal on the `keycloak-compose-local` folder and run `./run_compose.sh`. This will spin up a keycloak instance on `http://localhost:8080`
 
-> Warning: DO NOT USE this configuration to spin up a keycloak instance in production. See `deploying_to_production.md` for more information.
+> Warning: DO NOT USE this configuration to spin up a keycloak instance in production.
 
 2. Open a browser and navigate to `http://localhost:8080`. 
 
@@ -57,7 +57,7 @@ See the appropriate presentation `Securing-Servers-with-Keycloak.pdf`.
 npm i
 npm run dev
 ```
-You should see "Server running on https://localhost:8181" when  
+You should see "Server running on https://localhost:8181" when
 
 > Note: DO NOT RUN a server this way in production. See `deploying_to_production.md`.
 
@@ -74,6 +74,11 @@ npx ng serve --ssl
 All should be ok. navigate to `https://localhost:4200` to see the demo application UI.
 
 #### Extra Features
+
+##### Make the user an "admin". 
+
+Create the realm role "admin", create group "admins", add a user to the group admins. Add the "realm role" mapper in the client dedicated scopes tab ( from pre-defined mappers ). Change token claim name to "roles". Check "Add to ID token". Save. Now the ID token will contain the "realm roles" attribute with nested role elements. The "admin" role will be in that list if the user is in the group "admins". 
+
 
 - Enable user-registration, forgot-password, Remember-Me in Realm Settings->Login.
 

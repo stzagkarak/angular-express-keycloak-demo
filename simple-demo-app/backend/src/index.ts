@@ -1,0 +1,401 @@
+import express, { NextFunction } from "express";
+import passport from "passport";
+import { Strategy as OpenIDConnectStrategy } from "passport-openidconnect";
+import session from "express-session";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import helmet from "helmet";
+import jwt from "jsonwebtoken";
+import { config } from "dotenv";
+import path from "path";
+
+config();
+
+// User interface
+interface User {
+  id: string;
+  email: string;
+  preferred_username: string;
+  roles?: string[];
+  idToken?: string;
+}
+
+const app = express();
+const PORT = parseInt(process.env.PORT as string);
+
+app.use(express.static(path.join(__dirname, "/../public")));
+
+// Security middleware
+app.use(helmet());
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL as string,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+  })
+);
+
+app.use(express.json());
+app.use(cookieParser());
+
+// Session configuration (traditional approach)
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET as string,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production", // HTTPS only in production
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: "lax",
+    },
+  })
+);
+
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Keycloak OIDC Configuration
+const KEYCLOAK_CONFIG = {
+  issuer: process.env.KEYCLOAK_ISSUER as string,
+  authorizationURL: process.env.KEYCLOAK_AUTH_URL as string,
+  tokenURL: process.env.KEYCLOAK_TOKEN_URL as string,
+  userInfoURL: process.env.KEYCLOAK_USERINFO_URL as string,
+  clientID: process.env.KEYCLOAK_CLIENT_ID as string,
+  clientSecret: process.env.KEYCLOAK_CLIENT_SECRET as string,
+  callbackURL: process.env.KEYCLOAK_CALLBACK_URL as string,
+  scope: ["openid"],
+};
+
+// ((
+//             issuer: string,
+//             profile: Profile,
+//             context: object,
+//             idToken: string | object,
+//             accessToken: string | object,
+//             refreshToken: string,
+//             done: VerifyCallback,
+//         ) => void)
+
+// Configure Passport OpenID Connect Strategy
+passport.use(
+  "oidc",
+  new OpenIDConnectStrategy(
+    {
+      issuer: KEYCLOAK_CONFIG.issuer,
+      authorizationURL: KEYCLOAK_CONFIG.authorizationURL,
+      tokenURL: KEYCLOAK_CONFIG.tokenURL,
+      userInfoURL: KEYCLOAK_CONFIG.userInfoURL,
+      clientID: KEYCLOAK_CONFIG.clientID,
+      clientSecret: KEYCLOAK_CONFIG.clientSecret,
+      callbackURL: KEYCLOAK_CONFIG.callbackURL,
+      scope: KEYCLOAK_CONFIG.scope,
+    },
+    async (
+      issuer: string,
+      profile: passport.Profile,
+      context: Object,
+      idToken: string | object,
+      accessToken: string | object,
+      refreshToken: string,
+      done: any
+    ) => {
+      try {
+        // hacky way to get roles in our user structure, profile does not contain roles
+        const decoded = jwt.decode(idToken as string) as any;
+
+        // Transform Keycloak profile to our User interface
+        const user: User = {
+          id: profile.id || "",
+          email: decoded.emails?.[0]?.value || decoded.email || "",
+          preferred_username: decoded.preferred_username || "",
+          roles: decoded.roles || [],
+          idToken: idToken as string, // Store ID token for logout
+        };
+
+        return done(null, user);
+      } catch (error) {
+        return done(error);
+      }
+    }
+  )
+);
+
+// Passport serialization
+passport.serializeUser((user: any, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser((id: string, done) => {
+  // In a real app, you'd fetch user from database
+  // For demo purposes, we'll store user in session
+  done(null, { id });
+});
+
+// JWT-based auth (modern alternative)
+const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET as string;
+
+const generateTokens = (user: User) => {
+  const accessToken = jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      roles: user.roles,
+    },
+    JWT_SECRET,
+    { expiresIn: "15m" }
+  );
+
+  const refreshToken = jwt.sign(
+    { id: user.id, roles: user.roles },
+    JWT_REFRESH_SECRET,
+    {
+      expiresIn: "7d",
+    }
+  );
+
+  return { accessToken, refreshToken };
+};
+
+const verifyToken = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Access token required" });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ error: "Invalid or expired token" });
+    }
+    req.user = user;
+    return next();
+  });
+
+  return;
+};
+
+// Routes
+
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "OK", timestamp: new Date().toISOString() });
+});
+
+// Modern JWT-based auth routes
+
+// redirect here from frontend to start the OIDC flow
+app.get(
+  "/api/auth/jwt/login",
+  passport.authenticate("oidc", {
+    state: "jwt_flow", // Flag to identify JWT flow
+  })
+);
+
+// Will be called by Keycloak after successful authentication
+// This will redirect to the frontend with the access token
+app.get(
+  "/api/auth/jwt/callback",
+  passport.authenticate("oidc", { session: false }),
+  (req, res) => {
+    const user = req.user as User;
+    const idToken = user.idToken || "";
+
+    const { accessToken, refreshToken } = generateTokens(user);
+
+    // Set refresh token as httpOnly cookie
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    // Set idToken as httpOnly cookie for logout
+    res.cookie("idToken", idToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000, // does not matter, expired tokens are still allowed to be used for logout hints
+    });
+
+    // Redirect with access token
+    const frontendUrl = process.env.FRONTEND_URL as string;
+    res.redirect(`${frontendUrl}/auth/callback?token=${accessToken}`);
+  }
+);
+
+// Hard logout route
+// frontend clears access token and calls this endpoint to clear the refresh token cookie
+// This will also redirect to Keycloak's end-session endpoint to log out from Keycloak SSO
+app.get("/api/auth/jwt/logout", (req, res) => {
+  // Clear the refresh token cookie
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+
+  // Get idToken from cookie
+  const idToken = req.cookies.idToken;
+
+  res.clearCookie("idToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+
+  // Redirect to Keycloak logout if idToken is present
+  if (idToken) {
+    const keycloakLogoutUrl = `${
+      process.env.KEYCLOAK_LOGOUT_URL
+    }?post_logout_redirect_uri=${encodeURIComponent(
+      process.env.FRONTEND_URL as string
+    )}&id_token_hint=${idToken}`;
+    return res.redirect(keycloakLogoutUrl);
+  }
+
+  return res.json({ message: "Success" });
+});
+
+// Call to refresh the access token using the refresh token
+// The refresh token is stored in an httpOnly cookie ( for security reasons )
+// if 401 or 403, call the login endpoint to get a new access token
+app.post("/api/auth/jwt/refresh", (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: "Refresh token required" });
+  }
+
+  jwt.verify(refreshToken, JWT_REFRESH_SECRET, (err: any, decoded: any) => {
+    if (err) {
+      return res.status(403).json({ error: "Invalid refresh token" });
+    }
+
+    // In a real app, fetch user from database using decoded.id
+    // For demo, we'll create a mock user
+    const user: User = {
+      id: decoded.id,
+      email: "user@example.com", // Fetch from DB
+      preferred_username: "demo", // Fetch from DB
+      roles: [...decoded.roles], // Fetch from DB
+    };
+
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
+
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({ accessToken });
+  });
+
+  return;
+});
+
+// JWT protected route
+app.get("/api/user", verifyToken, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// JWT Admin protected route
+app.get("/api/admin/resource", verifyToken, (req, res) => {
+  const user = req.user as User;
+
+  if (!user.roles || !user.roles.includes("admin")) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  return res.json({
+    message: "Success",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Error handling middleware
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error(err.stack);
+    res.status(500).json({ error: "Something went wrong!" });
+  }
+);
+
+// frontend handler
+app.use(/(.*)/, (req, res) => {
+  if (req.path.startsWith("/api")) {
+    return res.status(404).send("API route not found");
+  }
+
+  return res.sendFile(path.join(__dirname, "/../public/index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Keycloak OIDC configured for: ${KEYCLOAK_CONFIG.issuer}`);
+});
+
+export default app;
+
+// Traditional session-based auth routes
+// app.get('/auth/login', passport.authenticate('oidc'));
+
+// app.get('/auth/callback',
+//   passport.authenticate('oidc', { failureRedirect: '/auth/failure' }),
+//   (req, res) => {
+//     // Successful authentication
+//     res.redirect(process.env.FRONTEND_URL || 'http://localhost:3000');
+//   }
+// );
+
+// app.get('/auth/failure', (req, res) => {
+//   res.status(401).json({ error: 'Authentication failed' });
+// });
+
+// app.post('/auth/logout', (req, res) => {
+//   req.logout((err) => {
+//     if (err) {
+//       return res.status(500).json({ error: 'Logout failed' });
+//     }
+//     req.session.destroy((err) => {
+//       if (err) {
+//         return res.status(500).json({ error: 'Session destruction failed' });
+//       }
+//       res.clearCookie('connect.sid');
+//       res.json({ message: 'Logged out successfully' });
+//     });
+//   });
+// });
+
+// app.get("/api/user", requireAuth, (req, res) => {
+//   res.json({ user: req.user });
+// });
+
+// Auth middleware
+// const requireAuth = (
+//   req: express.Request,
+//   res: express.Response,
+//   next: express.NextFunction
+// ) => {
+//   if (req.isAuthenticated()) {
+//     return next();
+//   }
+//   res.status(401).json({ error: "Authentication required" });
+// };
