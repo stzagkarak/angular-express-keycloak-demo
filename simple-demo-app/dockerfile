@@ -1,0 +1,45 @@
+FROM node:22.17 as backend-builder
+
+# Build Backend
+WORKDIR /build
+
+COPY backend/package.json package.json
+COPY backend/package-lock.json package-lock.json
+COPY backend/tsconfig.json tsconfig.json
+COPY backend/src src 
+COPY backend/run.sh run.sh
+
+RUN npm install 
+RUN npm run build
+
+FROM node:22.17 as frontend-builder
+
+# Build Frontend
+WORKDIR /build
+
+COPY backend/angular-frontend/package.json package.json
+COPY backend/angular-frontend/package-lock.json package-lock.json
+COPY backend/angular-frontend/tsconfig.json tsconfig.json
+COPY backend/angular-frontend/tsconfig.app.json tsconfig.app.json
+COPY backend/angular-frontend/angular.json angular.json
+COPY backend/angular-frontend/build.sh build.sh
+COPY backend/angular-frontend/src src
+
+RUN npm install 
+RUN npm run build
+
+# Run Backend ( serve frontend )
+FROM node:22.17
+
+WORKDIR /app 
+
+COPY /backend/package.json package.json
+COPY /backend/package-lock.json package-lock.json
+COPY /backend/run.sh run.sh
+
+RUN npm install --omit=dev
+
+COPY --from=backend-builder /build/dist .
+COPY --from=frontend-builder /build/dist/angular-frontend/browser public
+
+CMD [ "./run.sh" ]

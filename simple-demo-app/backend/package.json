@@ -7,7 +7,9 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "test": "npx nodemon ./src/index.ts"
+    "test": "npx nodemon ./src/index.ts",
+    "build": "tsc",
+    "docker-start": "node index.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 
 import { ActivatedRoute, Router } from '@angular/router';
 import { TokenService } from '../services/token-ref';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-homepage',
@@ -11,7 +12,7 @@ import { TokenService } from '../services/token-ref';
   styleUrl: './homepage.css',
 })
 export class Homepage {
-  HOST: string = 'http://localhost:3001';
+  HOST: string = environment.HOST || 'http://localhost:3001'; // Default to localhost if not set
   tokenFound = false;
   tokenRefreshed = false;
 
