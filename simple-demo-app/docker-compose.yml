@@ -1,0 +1,9 @@
+services:
+  express-server:
+    build: .
+    container_name: simple-demo
+    ports:
+      - "3001:3001"
+    env_file:
+      - backend.prod.env
+    restart: unless-stopped
