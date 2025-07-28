@@ -7,7 +7,7 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "test": "npx nodemon ./src/index.ts",
+    "dev": "npx nodemon ./src/index.ts",
     "build": "tsc",
     "docker-start": "node index.js"
   },
