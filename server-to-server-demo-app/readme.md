@@ -65,6 +65,6 @@ Generate client secret and copy to resource server's .env file
 
 #### Issues In production
 
-1. May need to set express trust proxy = true. [Documentation](https://expressjs.com/en/guide/behind-proxies.html) `app.set('trust proxy', 1);`.
+1. May need to set express trust proxy if the server is running behind a reverse proxy. [Documentation](https://expressjs.com/en/guide/behind-proxies.html) `app.set('trust proxy', 1);`.
 2. Setup `cors` depending on your domain restrictions.
 3. Don't forget to edit `.env` files with the changed values.

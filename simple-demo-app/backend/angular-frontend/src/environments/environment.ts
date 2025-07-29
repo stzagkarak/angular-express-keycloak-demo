@@ -1,3 +1,3 @@
 export const environment = {
-  HOST: 'change-me',
+  HOST: 'http://localhost:3001',
 };
