@@ -1,13 +1,12 @@
-import express, { NextFunction } from "express";
-import passport from "passport";
-import { Strategy as OpenIDConnectStrategy } from "passport-openidconnect";
-import session from "express-session";
+import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import helmet from "helmet";
 import jwt from "jsonwebtoken";
 import { config } from "dotenv";
 import path from "path";
+import { Issuer, Client, generators } from "openid-client";
+import crypto from "crypto";
 
 if (process.env.NODE_ENV !== "production") {
   config(); // .env dev config
@@ -23,6 +22,22 @@ interface User {
   idToken?: string;
 }
 
+declare global {
+  namespace Express {
+    interface User {
+      id: string;
+      email: string;
+      preferred_username: string;
+      roles?: string[];
+      idToken?: string;
+    }
+
+    interface Request {
+      user?: User;
+    }
+  }
+}
+
 const app = express();
 const PORT = parseInt(process.env.PORT as string);
 
@@ -30,9 +45,9 @@ if (process.env.PROXY_EXISTS === "1") {
   app.set("trust proxy", 1); // Trust first proxy for secure cookies in production
 }
 
-let staticPath = path.join(__dirname, "/public");
+let staticPath = path.join(__dirname, "/../public");
 if (process.env.DOCKER_EXISTS === "1") {
-  staticPath = "/app/public"; // Docker container path
+  staticPath = "/app/public"; // Docker container public path
 }
 app.use(express.static(staticPath));
 
@@ -50,121 +65,109 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-// Session configuration (traditional approach)
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET as string,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === "production", // HTTPS only in production
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: "lax",
-    },
-  })
-);
-
-// Initialize Passport
-app.use(passport.initialize());
-app.use(passport.session());
-
 // Keycloak OIDC Configuration
 const KEYCLOAK_CONFIG = {
   issuer: process.env.KEYCLOAK_ISSUER as string,
-  authorizationURL: process.env.KEYCLOAK_AUTH_URL as string,
-  tokenURL: process.env.KEYCLOAK_TOKEN_URL as string,
-  userInfoURL: process.env.KEYCLOAK_USERINFO_URL as string,
   clientID: process.env.KEYCLOAK_CLIENT_ID as string,
   clientSecret: process.env.KEYCLOAK_CLIENT_SECRET as string,
   callbackURL: process.env.KEYCLOAK_CALLBACK_URL as string,
-  scope: ["openid"],
 };
 
-// Configure Passport OpenID Connect Strategy
-passport.use(
-  "oidc",
-  new OpenIDConnectStrategy(
-    {
-      issuer: KEYCLOAK_CONFIG.issuer,
-      authorizationURL: KEYCLOAK_CONFIG.authorizationURL,
-      tokenURL: KEYCLOAK_CONFIG.tokenURL,
-      userInfoURL: KEYCLOAK_CONFIG.userInfoURL,
-      clientID: KEYCLOAK_CONFIG.clientID,
-      clientSecret: KEYCLOAK_CONFIG.clientSecret,
-      callbackURL: KEYCLOAK_CONFIG.callbackURL,
-      scope: KEYCLOAK_CONFIG.scope,
-    },
-    async (
-      issuer: string,
-      profile: passport.Profile, // profile is created using parsed info from tokens
-      context: Object,
-      idToken: string | object,
-      accessToken: string | object,
-      refreshToken: string,
-      done: any
-    ) => {
-      try {
-        // hacky way to get roles in our user structure, profile does not contain roles
-        const decoded = jwt.decode(idToken as string) as any;
+// Initialize OpenID Client
+let keycloakIssuer: any;
+let oidc_client: Client;
 
-        // Transform Keycloak profile to our User interface
-        const user: User = {
-          id: profile.id || "",
-          email: decoded.emails?.[0]?.value || decoded.email || "",
-          preferred_username: decoded.preferred_username || "",
-          roles: decoded.realm_access?.roles || [],
-          idToken: idToken as string, // Store ID token for logout
-        };
+const initializeOIDCClient = async () => {
+  try {
+    keycloakIssuer = await Issuer.discover(KEYCLOAK_CONFIG.issuer);
+    console.log("Discovered issuer:", keycloakIssuer.issuer);
 
-        return done(null, user);
-      } catch (error) {
-        return done(error);
-      }
-    }
-  )
-);
+    oidc_client = new keycloakIssuer.Client({
+      client_id: KEYCLOAK_CONFIG.clientID,
+      client_secret: KEYCLOAK_CONFIG.clientSecret,
+      redirect_uris: [KEYCLOAK_CONFIG.callbackURL],
+      response_types: ["code"],
+    });
 
-// Passport serialization
-passport.serializeUser((user: any, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser((id: string, done) => {
-  // In a real app, you'd fetch user from database
-  // For demo purposes, we'll store user in session
-  done(null, { id });
-});
+    console.log("OIDC Client initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize OIDC client:", error);
+    process.exit(1);
+  }
+};
 
 // JWT-based auth (modern alternative)
 const JWT_SECRET = process.env.JWT_SECRET as string;
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET as string;
 
-// Dot not confuse the token names with Keycloak tokens
-// these are custom JWT tokens generated by our backend
-const generateTokens = (user: User) => {
-  const accessToken = jwt.sign(
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY as string; // 32 bytes key
+
+const encrypt = (text: string): string => {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return iv.toString("hex") + ":" + encrypted;
+};
+
+const decrypt = (text: string): string => {
+  const textParts = text.split(":");
+  const iv = Buffer.from(textParts.shift()!, "hex");
+  const encryptedText = textParts.join(":");
+  const decipher = crypto.createDecipheriv("aes-256-cbc", ENCRYPTION_KEY, iv);
+  let decrypted = decipher.update(encryptedText, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+};
+
+// Do not confuse the token name with OpenID Connect access tokens
+// these are JWT tokens generated by our backend for session management
+const generateJWT = (user: User, oidcRefreshToken: string) => {
+  const encryptedRefreshToken = encrypt(oidcRefreshToken);
+
+  return jwt.sign(
     {
       id: user.id,
       email: user.email,
       roles: user.roles,
+      oidcRefreshToken: encryptedRefreshToken,
     },
     JWT_SECRET,
     { expiresIn: "15m" }
   );
-
-  const refreshToken = jwt.sign(
-    { id: user.id, roles: user.roles },
-    JWT_REFRESH_SECRET,
-    {
-      expiresIn: "7d",
-    }
-  );
-
-  return { accessToken, refreshToken };
 };
 
-const verifyToken = (
+const storePKCEInCookie = (
+  res: express.Response,
+  codeVerifier: string,
+  state: string
+) => {
+  const pkceData = JSON.stringify({ codeVerifier, state });
+  const encryptedPKCE = encrypt(pkceData);
+
+  res.cookie("pkce_data", encryptedPKCE, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000, // 10 minutes - short lived
+  });
+};
+
+const retrievePKCEFromCookie = (
+  req: express.Request
+): { codeVerifier: string; state: string } | null => {
+  const encryptedPKCE = req.cookies.pkce_data;
+  if (!encryptedPKCE) return null;
+
+  try {
+    const decryptedData = decrypt(encryptedPKCE);
+    return JSON.parse(decryptedData);
+  } catch (error) {
+    console.error("Failed to decrypt PKCE data:", error);
+    return null;
+  }
+};
+
+const extract_token_for_logout = (
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
@@ -173,20 +176,102 @@ const verifyToken = (
   const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
-    return res.status(401).json({ error: "Access token required" });
+    return next();
   }
 
-  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+  jwt.verify(token, JWT_SECRET, async (err: any, decoded: any) => {
     if (err) {
-      return res.status(403).json({ error: "Invalid or expired token" });
+      return next(); // handle in next handler
     }
-    req.user = user;
+
+    req.user = decoded as User;
     return next();
   });
 
   return;
 };
 
+const refreshToken = async (
+  req: express.Request,
+  res: express.Response,
+  decoded: any
+) => {
+  try {
+    const encryptedRefreshToken = decoded?.oidcRefreshToken;
+
+    if (!encryptedRefreshToken) {
+      return false;
+    }
+
+    const oidcRefreshToken = decrypt(encryptedRefreshToken);
+    const refreshedTokenSet = await oidc_client.refresh(oidcRefreshToken);
+
+    const newClaims = refreshedTokenSet.claims();
+    const newIdTokenDecoded = jwt.decode(
+      refreshedTokenSet.id_token as string
+    ) as any;
+
+    const refreshedUser = {
+      id: newClaims.sub || decoded.id,
+      email: newClaims.email || decoded.email,
+      preferred_username:
+        newClaims.preferred_username || decoded.preferred_username,
+      roles: newIdTokenDecoded?.realm_access?.roles || decoded.roles || [],
+    };
+
+    // Generate new JWT
+    const newSessionAccessToken = generateJWT(
+      refreshedUser,
+      refreshedTokenSet.refresh_token as string
+    );
+
+    res.setHeader("X-New-Access-Token", newSessionAccessToken);
+    res.setHeader("X-Token-Refreshed", "true");
+
+    req.user = refreshedUser;
+    return true;
+  } catch (refreshError) {
+    // probably SSO logout or client session expired
+    console.error("Token refresh failed:", refreshError);
+    return false;
+  }
+};
+
+const verifyTokenWithAutoRefresh = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(400).json({ error: "Access token required" });
+  }
+
+  jwt.verify(token, JWT_SECRET, async (err: any, decoded: any) => {
+    if (err) {
+      // If token is expired, try to refresh it
+      if (err.name === "TokenExpiredError") {
+        if (await refreshToken(req, res, decoded)) {
+          req.user = decoded as User;
+          return next(); // all good, continue, token refreshed
+        }
+        return res.status(401).json({
+          error: "Session expired",
+          requiresReauth: true,
+          reason: "sso_logout",
+        });
+      }
+      return res.status(400).json({ error: "Invalid token" });
+    }
+
+    req.user = decoded as User;
+    return next();
+  });
+
+  return;
+};
 // Routes
 
 // Health check
@@ -197,128 +282,148 @@ app.get("/api/health", (req, res) => {
 // Modern JWT-based auth routes
 
 // redirect here from frontend to start the OIDC flow
-app.get(
-  "/api/auth/jwt/login",
-  passport.authenticate("oidc", {
-    state: "jwt_flow", // Flag to identify JWT flow
-  })
-);
+app.get("/api/auth/jwt/login", (req, res) => {
+  try {
+    const codeVerifier = generators.codeVerifier();
+    const codeChallenge = generators.codeChallenge(codeVerifier);
+    const state = generators.state();
+
+    // You can encode custom URL parameters ( not sensitive data ) provided from the frontend in the state variable
+    // e.g., state = encodeURIComponent(JSON.stringify({ state: state, customParam: "value" })).toString('base64');
+    // decode after state check in callback route: const params = JSON.parse(Buffer.from(oidc_client.callbackParams(req), 'base64').toString());
+
+    // Store PKCE parameters in encrypted cookie
+    storePKCEInCookie(res, codeVerifier, state);
+
+    const authUrl = oidc_client.authorizationUrl({
+      scope: "openid email profile",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+      state: state,
+    });
+
+    res.redirect(authUrl);
+  } catch (error) {
+    console.error("Error initiating OIDC login:", error);
+    res.status(500).json({ error: "Failed to initiate login" });
+  }
+});
 
 // Will be called by Keycloak after successful authentication
 // This will redirect to the frontend with the access token
-app.get(
-  "/api/auth/jwt/callback",
-  passport.authenticate("oidc", { session: false }),
-  (req, res) => {
-    const user = req.user as User;
-    const idToken = user.idToken || "";
+app.get("/api/auth/jwt/callback", async (req, res) => {
+  try {
+    const params = oidc_client.callbackParams(req);
+    const pkceData = retrievePKCEFromCookie(req);
 
-    const { accessToken, refreshToken } = generateTokens(user);
-
-    // Set refresh token as httpOnly cookie
-    res.cookie("refreshToken", refreshToken, {
+    // Clear PKCE cookie
+    res.clearCookie("pkce_data", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    // Set idToken as httpOnly cookie for logout
-    res.cookie("idToken", idToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 15 * 60 * 1000, // does not matter, expired tokens are still allowed to be used for logout hints
-    });
+    if (!pkceData) {
+      return res.status(400).json({ error: "PKCE data not found or expired" });
+    }
+
+    // Verify state parameter
+    if (params.state !== pkceData.state) {
+      return res.status(400).json({ error: "Invalid state parameter" });
+    }
+
+    // Exchange code for tokens
+    const tokenSet = await oidc_client.callback(
+      KEYCLOAK_CONFIG.callbackURL,
+      params,
+      { code_verifier: pkceData.codeVerifier, state: params.state }
+    );
+
+    // Get user info from the ID token
+    const claims = tokenSet.claims();
+
+    // Decode ID token to get additional info like roles
+    const idTokenDecoded = jwt.decode(tokenSet.id_token as string) as any;
+
+    // Transform Keycloak profile to our User interface
+    const user: User = {
+      id: claims.sub || "",
+      email: claims.email || "",
+      preferred_username: claims.preferred_username || "",
+      roles: idTokenDecoded?.realm_access?.roles || [],
+      idToken: tokenSet.id_token as string, // Store ID token for logout
+    };
+
+    const sessionAccessToken = generateJWT(
+      user,
+      tokenSet.refresh_token as string
+    );
 
     // Redirect with access token
     const frontendUrl = process.env.FRONTEND_URL as string;
-    res.redirect(`${frontendUrl}/auth/callback?token=${accessToken}`);
+    return res.redirect(
+      `${frontendUrl}/auth/callback?token=${sessionAccessToken}`
+    );
+  } catch (error) {
+    console.error("OIDC callback error:", error);
+    return res.status(500).json({ error: "Authentication failed" });
   }
-);
-
-// Hard logout route
-// frontend clears access token and calls this endpoint to clear the refresh token cookie
-// This will also redirect to Keycloak's end-session endpoint to log out from Keycloak SSO
-app.get("/api/auth/jwt/logout", (req, res) => {
-  // Clear the refresh token cookie
-  res.clearCookie("refreshToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  });
-
-  // Get idToken from cookie
-  const idToken = req.cookies.idToken;
-
-  res.clearCookie("idToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  });
-
-  // Redirect to Keycloak logout if idToken is present
-  if (idToken) {
-    const keycloakLogoutUrl = `${
-      process.env.KEYCLOAK_LOGOUT_URL
-    }?post_logout_redirect_uri=${encodeURIComponent(
-      process.env.FRONTEND_URL as string
-    )}&id_token_hint=${idToken}`;
-    return res.redirect(keycloakLogoutUrl);
-  }
-
-  return res.json({ message: "Success" });
 });
 
-// Call to refresh the access token using the refresh token
-// The refresh token is stored in an httpOnly cookie ( for security reasons )
-// normally, the backend should try perform this operation automatically
-// but for demo purposes, we expose this endpoint to trigger on demand
-// you can create a handler after verify that will perform similar actions
-// if expiration time of the refresh token is close
-app.post("/api/auth/jwt/refresh", (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
-
-  if (!refreshToken) {
-    return res.status(401).json({ error: "Refresh token required" });
-  }
-
-  jwt.verify(refreshToken, JWT_REFRESH_SECRET, (err: any, decoded: any) => {
-    if (err) {
-      return res.status(403).json({ error: "Invalid refresh token" });
-    }
-
-    // In a real app, fetch user from database using decoded.id
-    // For demo, we'll create a mock user
-    const user: User = {
-      id: decoded.id,
-      email: "user@example.com", // Fetch from DB
-      preferred_username: "demo", // Fetch from DB
-      roles: [...decoded.roles], // Fetch from DB
-    };
-
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
-
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+// Hard logout route
+// If JWT is not provided, nothing to do, it will just redirect to frontend URL
+app.get("/api/auth/jwt/logout", extract_token_for_logout, (req, res) => {
+  // Redirect to Keycloak logout if idToken is present
+  if (req.user && req.user.idToken) {
+    const logoutUrl = oidc_client.endSessionUrl({
+      post_logout_redirect_uri: process.env.FRONTEND_URL as string,
+      id_token_hint: req.user.idToken,
+      // state: "logout", // can also be used here to pass custom parameters
     });
 
-    return res.json({ accessToken });
+    return res.redirect(logoutUrl);
+  }
+
+  // If no idToken is present, nothing to do, just return success
+  // This means the user is not logged in or has already logged out
+  const frontendUrl = process.env.FRONTEND_URL as string;
+  return res.redirect(frontendUrl);
+});
+
+// Call to refresh the access token using the oidc refresh token
+app.post("/api/auth/jwt/refresh", (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(400).json({ error: "Access token required" });
+  }
+
+  jwt.verify(token, JWT_SECRET, async (err: any, decoded: any) => {
+    if (err && err.name !== "TokenExpiredError") {
+      return res.status(400).json({ error: "Invalid token" });
+    }
+
+    if (await refreshToken(req, res, decoded)) {
+      return res.status(200).json({ message: "Success" });
+    }
+    return res.status(401).json({
+      error: "Session expired",
+      requiresReauth: true,
+      reason: "sso_logout",
+    });
   });
 
   return;
 });
 
 // JWT protected route
-app.get("/api/user", verifyToken, (req, res) => {
+app.get("/api/user", verifyTokenWithAutoRefresh, (req, res) => {
   res.json({ user: req.user });
 });
 
 // JWT Admin protected route
-app.get("/api/admin/resource", verifyToken, (req, res) => {
+app.get("/api/admin/resource", verifyTokenWithAutoRefresh, (req, res) => {
   const user = req.user as User;
 
   if (!user.roles || !user.roles.includes("admin")) {
@@ -353,55 +458,12 @@ app.use(/(.*)/, (req, res) => {
   return res.sendFile(staticPath + "/index.html");
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Keycloak OIDC configured for: ${KEYCLOAK_CONFIG.issuer}`);
+// Initialize OIDC client and start server
+initializeOIDCClient().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Keycloak OIDC configured for: ${KEYCLOAK_CONFIG.issuer}`);
+  });
 });
 
 export default app;
-
-// Traditional session-based auth routes
-// app.get('/auth/login', passport.authenticate('oidc'));
-
-// app.get('/auth/callback',
-//   passport.authenticate('oidc', { failureRedirect: '/auth/failure' }),
-//   (req, res) => {
-//     // Successful authentication
-//     res.redirect(process.env.FRONTEND_URL || 'http://localhost:3000');
-//   }
-// );
-
-// app.get('/auth/failure', (req, res) => {
-//   res.status(401).json({ error: 'Authentication failed' });
-// });
-
-// app.post('/auth/logout', (req, res) => {
-//   req.logout((err) => {
-//     if (err) {
-//       return res.status(500).json({ error: 'Logout failed' });
-//     }
-//     req.session.destroy((err) => {
-//       if (err) {
-//         return res.status(500).json({ error: 'Session destruction failed' });
-//       }
-//       res.clearCookie('connect.sid');
-//       res.json({ message: 'Logged out successfully' });
-//     });
-//   });
-// });
-
-// app.get("/api/user", requireAuth, (req, res) => {
-//   res.json({ user: req.user });
-// });
-
-// Auth middleware
-// const requireAuth = (
-//   req: express.Request,
-//   res: express.Response,
-//   next: express.NextFunction
-// ) => {
-//   if (req.isAuthenticated()) {
-//     return next();
-//   }
-//   res.status(401).json({ error: "Authentication required" });
-// };

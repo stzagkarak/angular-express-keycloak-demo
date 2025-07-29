@@ -52,38 +52,52 @@ export class Homepage {
     window.location.href = this.HOST + '/api/auth/jwt/logout';
   }
 
-  // call this to refresh tokens if 403 error occurs
+  // call this to refresh tokens
+  // if 401 -- session expired, need to re-authenticate
   async refreshTokens() {
     const token = this.tokenService.getToken();
     if (!token) return;
 
-    try {
-      const response = await fetch(this.HOST + '/api/auth/jwt/refresh', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
+    const response = await fetch(this.HOST + '/api/auth/jwt/refresh', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
 
-      const data = await response.json();
-      console.log('Refresh response:', data);
+    this.checkUpdateToken(response);
 
-      // update the token in memory
-      this.tokenService.setToken(data.accessToken); // Update the token in memory
-      this.tokenRefreshed = true;
-    } catch (error) {
-      // if refresh fails, clear the token and call the login method to redirect and start the OIDC flow
-      console.error('Refresh failed:', error);
+    const data = await response.json();
+    console.log('Refresh response:', data);
+  }
 
+  checkUpdateToken = (response: Response) => {
+    if (!response.ok) {
       this.tokenRefreshed = false;
       this.tokenService.clearToken();
 
-      // you may want to redirect to login page and/or show a message
-      this.login(); // Redirect to login to start the OIDC flow again
+      if (response.status === 401) {
+        // Session expired, redirect to login
+        this.login(); // Redirect to login
+      } else {
+        // invalid token or other error, nothing to do other than login again
+        this.login();
+      }
+
+      return;
     }
-  }
+
+    // this check needs to be done to see if the token has been refreshed
+    if (response.headers.get('X-New-Access-Token') !== null) {
+      const newAccessToken = response.headers.get('X-New-Access-Token');
+      if (newAccessToken) {
+        this.tokenService.setToken(newAccessToken as string); // Update the token in memory
+        this.tokenRefreshed = true;
+      }
+    }
+  };
 
   // example of protected route
   async fetchUserInfo() {
@@ -94,25 +108,20 @@ export class Homepage {
       this.login();
     }
 
-    try {
-      const response = await fetch(this.HOST + '/api/user', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // withCredentials: true
-      });
+    const response = await fetch(this.HOST + '/api/user', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include', // withCredentials: true
+    });
 
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
+    this.checkUpdateToken(response);
 
-      const data = await response.json();
-      console.log('User info response:', data);
-    } catch (error) {
-      console.error('Fetch user info failed:', error);
-    }
+    // actual data from the endpoint
+    const data = await response.json();
+    console.log('User info response:', data);
   }
 
   // example of protected route
@@ -122,27 +131,20 @@ export class Homepage {
     // if not token is found in memory, we need to redirect to login
     if (!token) {
       this.login();
-      return;
     }
 
-    try {
-      const response = await fetch(this.HOST + '/api/admin/resource', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // withCredentials: true
-      });
+    const response = await fetch(this.HOST + '/api/admin/resource', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include', // withCredentials: true
+    });
 
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
+    this.checkUpdateToken(response);
 
-      const data = await response.json();
-      console.log(data);
-    } catch (error) {
-      console.error('Fetch protected route failed:', error);
-    }
+    const data = await response.json();
+    console.log(data);
   }
 }
