@@ -43,7 +43,7 @@ export class Homepage {
   // call login method initially to start the OIDC flow
   // also call this method when 401 errors occur in protected routes
   login() {
-    this.tokenService.clearToken();
+    //this.tokenService.clearToken();
     window.location.href = this.HOST + '/api/auth/jwt/login';
   }
 

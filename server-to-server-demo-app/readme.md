@@ -12,7 +12,7 @@ The example showcases the [Client Credentials OAuth2.0 Flow](https://auth0.com/d
 
 1. Client Application requests an access token from Keycloak using Client Credentials Flow.
 2. Client Application uses the token to make requests to the Resource Server.
-3. Resource Server validates the token by calling Keycloak's introspection endpoint.
+3. Resource Server validates the token by calling Keycloak's introspection endpoint or locally using the the realms public certs.
 4. If valid, Resource Server returns the protected resource.
 5. Client Application automatically handles token refresh when tokens expire.
 

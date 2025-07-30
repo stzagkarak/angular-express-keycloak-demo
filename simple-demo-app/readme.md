@@ -2,7 +2,7 @@
 
 ## How It Works
 
-demo application showcases an The server typescript server that serves an Angular SPA frontend application and as well as some demo api routes. The server authenticates it's users using a remote Auth2.0 OpenID Connect complient SSO Authorization Server ( e.g Keycloak ). Once succesful Authentication is achieved, the server maintains a secure stateless JWT token session with the client frontend code. The approach used for session management is _mostly_ stateless. Traditional cookies are only used for state management during login with the SSO and are then immediately deleted.
+The demo application showcases an typescript server that serves an Angular SPA frontend application and as well as some demo api routes. The server authenticates it's users using a remote Auth2.0 OpenID Connect complient SSO Authorization Server ( e.g Keycloak ). Once succesful Authentication is achieved, the server maintains a secure stateless JWT token session with the client frontend code. The approach used for session management is _mostly_ stateless. Traditional cookies are only used for state management during login with the SSO and are then immediately deleted.
 
 The client executes the [OAuth2.0 Authorization Code grant](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow) with PKCE parameters on an Authorization Server to Authenticate it's users.
 

@@ -443,7 +443,7 @@ const setupRoutes = (app: express.Application, staticPath: string): void => {
   });
 };
 
-// Route handlers
+// handler for /api/auth/jwt/login
 const handleLogin = (req: express.Request, res: express.Response): void => {
   try {
     const codeVerifier = generators.codeVerifier();
@@ -467,6 +467,7 @@ const handleLogin = (req: express.Request, res: express.Response): void => {
   }
 };
 
+// handler for /api/auth/jwt/callback
 const handleCallback = async (
   req: express.Request,
   res: express.Response
@@ -523,6 +524,7 @@ const handleCallback = async (
   }
 };
 
+// handler for /api/auth/jwt/logout
 const handleLogout = (req: express.Request, res: express.Response): void => {
   if (req.user?.idToken) {
     const client = OIDCClientManager.getClient();
@@ -580,8 +582,8 @@ const handleRefresh = async (
 };
 
 const handleGetUser = (req: express.Request, res: express.Response): void => {
-  const { oidcRefreshToken, ...userWithoutToken } = req.user as any;
-  res.json({ user: userWithoutToken });
+  const user = req.user as any;
+  res.json({ user: user });
 };
 
 const handleAdminResource = (
